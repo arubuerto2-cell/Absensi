@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Absensi Wajah + GPS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F0F3F1;--surface:#FFFFFF;--ink:#13211D;--muted:#5B6B65;--line:#D8E0DC;
+  --primary:#0B6E5B;--on-primary:#FFFFFF;--ok-bg:#DDF3EC;--ok:#0B6E5B;
+  --warn:#8A4B08;--warn-bg:#FDF0CF;--bad:#B3261E;--bad-bg:#FDE8E6;--cam:#0C1512;
+  --display:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif;
+  --body:"Figtree",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E1512;--surface:#16201C;--ink:#E6EFEB;--muted:#93A59D;--line:#2A3832;
+    --primary:#3CC4A5;--on-primary:#06231C;--ok-bg:#12352C;--ok:#5FD9BC;
+    --warn:#F2C46B;--warn-bg:#3A2D0E;--bad:#FF9A92;--bad-bg:#3B1714;--cam:#050908;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E1512;--surface:#16201C;--ink:#E6EFEB;--muted:#93A59D;--line:#2A3832;
+  --primary:#3CC4A5;--on-primary:#06231C;--ok-bg:#12352C;--ok:#5FD9BC;
+  --warn:#F2C46B;--warn-bg:#3A2D0E;--bad:#FF9A92;--bad-bg:#3B1714;--cam:#050908;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.5;-webkit-text-size-adjust:100%}
+.app{max-width:560px;margin:0 auto;padding:16px 16px 96px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:8px 0 16px}
+h1{font-family:var(--display);font-weight:800;font-size:26px;line-height:1.1;margin:0;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:14px;margin-top:2px}
+.clock{font-family:var(--display);font-weight:600;font-size:34px;line-height:1;font-variant-numeric:tabular-nums;text-align:right}
+.clock small{display:block;font-family:var(--body);font-weight:400;font-size:13px;color:var(--muted);margin-top:4px}
+h2{font-family:var(--display);font-size:19px;margin:0 0 10px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:14px;font-weight:600;margin:0 0 6px}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:11px 12px;min-height:44px}
+input[type=checkbox]{width:auto;min-height:0;accent-color:var(--primary)}
+textarea{min-height:120px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+:focus-visible{outline:3px solid var(--primary);outline-offset:2px}
+.row{display:flex;gap:10px}
+.row>*{flex:1;min-width:0}
+.field{margin-bottom:12px}
+.check{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;font-size:15px}
+.check input{margin-top:5px}
+button{font:inherit;font-weight:600;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:11px 16px;min-height:44px;cursor:pointer}
+button.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+button.big{width:100%;min-height:56px;font-size:18px;font-family:var(--display)}
+button.danger{color:var(--bad);border-color:var(--bad)}
+button.small{min-height:36px;padding:6px 12px;font-size:14px}
+button:disabled{opacity:.5;cursor:not-allowed}
+.hint{font-size:13px;color:var(--muted);margin:6px 0 0}
+
+/* camera */
+.cam{position:relative;background:var(--cam);border-radius:20px;overflow:hidden;aspect-ratio:3/4;max-height:64vh;width:100%;margin:0 auto 12px}
+.cam video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+.cam svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.cam .oval{fill:none;stroke:#fff;stroke-width:3;stroke-dasharray:10 8;opacity:.85;transition:stroke .2s}
+.cam.ready .oval{stroke:#4FE3B8;stroke-dasharray:none;opacity:1}
+.cam.bad .oval{stroke:#FF8A80;stroke-dasharray:none}
+.cam.fallback svg{display:none}
+.gpsrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.gpsrow .chips{margin:0}
+.cam .msg{position:absolute;inset:auto 12px 12px 12px;color:#fff;font-size:14px;text-align:center;background:rgba(0,0,0,.55);border-radius:10px;padding:8px 10px}
+.cam .off{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cfe;font-size:15px;text-align:center;padding:24px}
+
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.chip{font-size:13px;font-weight:600;padding:6px 10px;border-radius:999px;background:var(--bg);border:1px solid var(--line);color:var(--muted)}
+.chip.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.chip.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.chip.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+
+.result{border-radius:14px;padding:14px;margin-bottom:12px;font-size:15px}
+.result.ok{background:var(--ok-bg);color:var(--ok)}
+.result.bad{background:var(--bad-bg);color:var(--bad)}
+.result b{font-family:var(--display);font-size:18px;display:block;margin-bottom:2px}
+
+.list{list-style:none;margin:0;padding:0}
+.item{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item img{width:48px;height:48px;border-radius:10px;object-fit:cover;background:var(--bg);flex:none}
+.item .grow{flex:1;min-width:0}
+.item .name{font-weight:600}
+.item .meta{font-size:13px;color:var(--muted)}
+.samples{display:flex;gap:8px;margin:8px 0}
+.samples img{width:64px;height:64px;border-radius:10px;object-fit:cover}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:600;color:var(--muted)}
+.late{color:var(--warn);font-weight:600}
+.empty{color:var(--muted);text-align:center;padding:18px 8px;font-size:15px}
+
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px);z-index:10}
+nav .in{max-width:560px;margin:0 auto;display:flex}
+nav button{flex:1;border:0;border-radius:0;background:transparent;color:var(--muted);min-height:56px;font-size:14px}
+nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var(--primary)}
+.view{display:none}
+.view.on{display:block}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<input type="file" id="photoIn" accept="image/*" capture="user" style="display:none" aria-hidden="true" tabindex="-1">
+<div class="app">
+  <header>
+    <div>
+      <h1>Absensi</h1>
+      <div class="sub" id="officeLabel">Lokasi kantor belum diatur</div>
+    </div>
+    <div class="clock"><span id="clock">--:--:--</span><small id="dateLabel"></small></div>
+  </header>
+
+  <!-- ABSEN -->
+  <section class="view on" id="v-absen">
+    <div class="panel">
+      <div class="field" style="margin-bottom:0">
+        <label for="empSel">Nama karyawan</label>
+        <select id="empSel"></select>
+      </div>
+    </div>
+    <div class="cam" id="camA">
+      <video id="videoA" playsinline muted autoplay></video>
+      <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice"><ellipse class="oval" cx="150" cy="185" rx="95" ry="125"/></svg>
+      <div class="off" id="camAoff">Kamera belum aktif</div>
+      <div class="msg" id="camAmsg" hidden></div>
+    </div>
+    <div class="gpsrow">
+      <div class="chips">
+        <span class="chip" id="chipGps">GPS: mencari…</span>
+        <span class="chip" id="chipDist">Jarak: –</span>
+      </div>
+      <button class="small" id="btnGps">Ambil lokasi</button>
+    </div>
+    <p class="hint" id="gpsHint" hidden style="margin:-4px 0 12px"></p>
+    <div id="result"></div>
+    <button class="primary big" id="btnAbsen">Absen sekarang</button>
+    <p class="hint" id="absenHint">Tombol akan membuka kamera depan HP untuk selfie. Sistem otomatis memilih masuk atau pulang sesuai catatan hari ini.</p>
+  </section>
+
+  <!-- RIWAYAT -->
+  <section class="view" id="v-riwayat">
+    <div class="panel">
+      <label for="dateSel">Tanggal</label>
+      <input type="date" id="dateSel">
+    </div>
+    <div class="panel">
+      <h2>Rekap harian</h2>
+      <div class="tablewrap" id="recap"></div>
+    </div>
+    <div class="panel">
+      <h2>Catatan absen</h2>
+      <ul class="list" id="logList"></ul>
+    </div>
+    <div class="panel">
+      <h2>Ekspor</h2>
+      <div class="row">
+        <button id="btnCsvDay">Salin CSV tanggal ini</button>
+        <button id="btnCsvAll">Salin CSV semua</button>
+      </div>
+      <textarea id="csvBox" readonly hidden style="margin-top:10px" aria-label="Isi CSV"></textarea>
+      <p class="hint" id="csvHint">Tempel hasilnya ke Excel atau Google Sheets.</p>
+    </div>
+  </section>
+
+  <!-- KARYAWAN -->
+  <section class="view" id="v-karyawan">
+    <div class="panel">
+      <h2>Daftarkan karyawan</h2>
+      <div class="field">
+        <label for="newName">Nama lengkap</label>
+        <input id="newName" autocomplete="off" placeholder="Contoh: Budi Santoso">
+      </div>
+      <div class="cam" id="camK" style="max-height:52vh">
+        <video id="videoK" playsinline muted autoplay></video>
+        <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice"><ellipse class="oval" cx="150" cy="185" rx="95" ry="125"/></svg>
+        <div class="off" id="camKoff">Kamera belum aktif</div>
+      </div>
+      <div class="samples" id="samples"></div>
+      <div class="row">
+        <button id="btnShot">Ambil foto wajah</button>
+        <button class="primary" id="btnSaveEmp">Simpan karyawan</button>
+      </div>
+      <p class="hint">Ambil 2–3 foto dengan cahaya cukup, wajah lurus ke kamera. Makin banyak foto, makin stabil pencocokannya.</p>
+    </div>
+    <div class="panel">
+      <h2>Daftar karyawan</h2>
+      <ul class="list" id="empList"></ul>
+    </div>
+  </section>
+
+  <!-- PENGATURAN -->
+  <section class="view" id="v-atur">
+    <div class="panel">
+      <h2>Lokasi kantor</h2>
+      <p class="hint" style="margin-top:0;margin-bottom:10px">Bila GPS tidak bisa dipakai di halaman ini, isi koordinat lewat kolom Google Maps di bawah tombol.</p>
+      <button class="primary" id="btnSetOffice" style="width:100%;margin-bottom:12px">Pakai lokasi saya sekarang</button>
+      <div class="field">
+        <label for="sPaste">Tempel koordinat dari Google Maps</label>
+        <input id="sPaste" placeholder="Contoh: -6.208763, 106.845599" autocomplete="off" inputmode="text">
+        <p class="hint" id="pasteHint">Di Google Maps, tekan lama titik kantor, lalu ketuk angka koordinat yang muncul untuk menyalin. Tempel di sini, lintang dan bujur terisi otomatis.</p>
+      </div>
+      <div class="row field">
+        <div><label for="sLat">Lintang</label><input id="sLat" inputmode="decimal"></div>
+        <div><label for="sLng">Bujur</label><input id="sLng" inputmode="decimal"></div>
+      </div>
+      <div class="field">
+        <label for="sRad">Radius absen (meter)</label>
+        <input id="sRad" type="number" min="10" step="10">
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Aturan absen</h2>
+      <div class="field">
+        <label for="sJam">Jam masuk (batas terlambat)</label>
+        <input id="sJam" type="time">
+      </div>
+      <div class="field">
+        <label for="sThr">Batas kecocokan wajah (%)</label>
+        <input id="sThr" type="number" min="30" max="99">
+      </div>
+      <label class="check"><input type="checkbox" id="sGeo"><span>Wajib berada dalam radius kantor</span></label>
+      <label class="check"><input type="checkbox" id="sMatch"><span>Wajib wajah cocok</span></label>
+      <button class="primary" id="btnSaveSet" style="width:100%">Simpan pengaturan</button>
+    </div>
+    <div class="panel">
+      <h2>Data</h2>
+      <p class="hint" style="margin-top:0;margin-bottom:10px">Data disimpan di browser HP/komputer ini saja. Kosongkan bila ingin memulai dari awal.</p>
+      <button class="danger" id="btnWipe" style="width:100%">Hapus semua catatan absen</button>
+    </div>
+  </section>
+</div>
+
+<nav aria-label="Menu utama"><div class="in" role="tablist">
+  <button role="tab" data-v="absen" aria-selected="true">Absen</button>
+  <button role="tab" data-v="riwayat" aria-selected="false">Riwayat</button>
+  <button role="tab" data-v="karyawan" aria-selected="false">Karyawan</button>
+  <button role="tab" data-v="atur" aria-selected="false">Pengaturan</button>
+</div></nav>
+
+<script>
+(function(){
+  var KEY='absensi-wajah-gps-v1';
+  var S={employees:[],logs:[],settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:70,requireGeo:true,requireMatch:true,lastEmp:''}};
+  var $=function(id){return document.getElementById(id)};
+  function load(){try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.employees){S.employees=d.employees;S.logs=d.logs||[];S.settings=Object.assign(S.settings,d.settings||{});if(!validLL(S.settings.lat,S.settings.lng)){S.settings.lat=null;S.settings.lng=null}}}}catch(e){}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(S));return true}catch(e){toastErr('Penyimpanan penuh atau diblokir. Hapus catatan lama lalu coba lagi.');return false}}
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  function pad(n){return n<10?'0'+n:''+n}
+  function dayKey(ts){var d=new Date(ts);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+  function hhmm(ts){var d=new Date(ts);return pad(d.getHours())+':'+pad(d.getMinutes())}
+  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+
+  /* ---------- clock ---------- */
+  function tick(){var d=new Date();$('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
+    $('dateLabel').textContent=d.toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}
+  setInterval(tick,1000);tick();
+
+  /* ---------- camera ---------- */
+  var stream=null,activeVideo=null;
+  function stopCam(){if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+    if(activeVideo){activeVideo.srcObject=null;activeVideo=null}
+    ['camA','camK'].forEach(function(id){$(id).classList.remove('ready','bad','fallback')});}
+  function startCam(video,offEl,wrap){
+    stopCam();
+    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){fallbackCam(offEl,wrap);return}
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false}).then(function(s){
+      stream=s;activeVideo=video;video.srcObject=s;video.play().catch(function(){});
+      offEl.style.display='none';wrap.classList.add('ready');
+    }).catch(function(e){
+      fallbackCam(offEl,wrap);
+    });
+  }
+  function fallbackCam(offEl,wrap){
+    wrap.classList.add('fallback');offEl.style.display='flex';
+    offEl.textContent='Pratinjau langsung tidak tersedia di halaman ini. Tekan tombol di bawah untuk membuka kamera HP dan mengambil selfie.';
+  }
+  function grab(video){
+    var vw=video.videoWidth||video.width,vh=video.videoHeight||video.height;if(!vw||!vh)return null;
+    var side=Math.min(vw,vh),sx=(vw-side)/2,sy=(vh-side)/2;
+    var full=document.createElement('canvas');full.width=vw;full.height=vh;full.getContext('2d').drawImage(video,0,0,vw,vh);
+    var crop=side*0.72,cx=(vw-crop)/2,cy=(vh-crop)/2-vh*0.02;
+    var t=document.createElement('canvas');t.width=t.height=120;t.getContext('2d').drawImage(video,cx,cy,crop,crop,0,0,120,120);
+    var g=document.createElement('canvas');g.width=g.height=16;var gx=g.getContext('2d');gx.drawImage(video,cx,cy,crop,crop,0,0,16,16);
+    var px=gx.getImageData(0,0,16,16).data,arr=[],i,sum=0;
+    for(i=0;i<px.length;i+=4){var v=0.299*px[i]+0.587*px[i+1]+0.114*px[i+2];arr.push(v);sum+=v}
+    var mean=sum/arr.length,sq=0;arr=arr.map(function(v){return v-mean});arr.forEach(function(v){sq+=v*v});
+    var sd=Math.sqrt(sq/arr.length)||1;arr=arr.map(function(v){return Math.round(v/sd*100)/100});
+    return {full:full,thumb:t.toDataURL('image/jpeg',0.6),sig:arr};
+  }
+  function similarity(a,b){var s=0;for(var i=0;i<a.length;i++)s+=a[i]*b[i];return Math.max(0,s/a.length)*100}
+  function bestScore(emp,sig){var best=0;(emp.sigs||[]).forEach(function(x){var s=similarity(sig,x);if(s>best)best=s});return Math.round(best)}
+  function detectFace(canvas){
+    if(!('FaceDetector' in window))return Promise.resolve(null);
+    try{return new window.FaceDetector({fastMode:true,maxDetectedFaces:2}).detect(canvas).then(function(f){return f.length}).catch(function(){return null})}catch(e){return Promise.resolve(null)}
+  }
+
+  var photoIn=$('photoIn');
+  function fileToCanvas(f){return new Promise(function(res,rej){
+    var url=URL.createObjectURL(f),img=new Image();
+    img.onload=function(){var w=img.naturalWidth,h=img.naturalHeight,k=Math.min(1,640/Math.max(w,h));
+      var c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(url);res(c)};
+    img.onerror=function(){URL.revokeObjectURL(url);rej()};
+    img.src=url;
+  })}
+  /* Ambil foto: pakai pratinjau langsung bila ada, kalau tidak buka kamera bawaan HP */
+  function takePhoto(cb){
+    if(stream&&activeVideo&&activeVideo.videoWidth){cb(grab(activeVideo));return}
+    photoIn.onchange=function(){
+      var f=photoIn.files&&photoIn.files[0];photoIn.value='';
+      if(!f)return;
+      fileToCanvas(f).then(function(c){cb(grab(c))},function(){cb(null)});
+    };
+    photoIn.click();
+  }
+
+  /* ---------- GPS ---------- */
+  var pos=null,watchId=null,gpsErr=null;
+  function dist(lat1,lon1,lat2,lon2){var R=6371000,r=Math.PI/180,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;
+    var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)*Math.sin(dLon/2);
+    return 2*R*Math.asin(Math.sqrt(a))}
+  function startGps(){
+    if(watchId!==null)return;
+    if(!navigator.geolocation){gpsErr='Browser tidak mendukung GPS';renderGps();return}
+    watchId=navigator.geolocation.watchPosition(gpsOk,gpsFail,{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
+  }
+  function gpsOk(p){pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};gpsErr=null;renderGps()}
+  function gpsFail(e){gpsErr=e.code===1?'Izin lokasi ditolak':(e.code===3?'Waktu habis':'Lokasi tidak tersedia');renderGps()}
+  $('btnGps').addEventListener('click',function(){
+    if(!navigator.geolocation){gpsErr='Browser tidak mendukung GPS';renderGps();return}
+    var g=$('chipGps');g.className='chip';g.textContent='GPS: mencari…';
+    navigator.geolocation.getCurrentPosition(gpsOk,gpsFail,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+    startGps();
+  });
+  function validLL(lat,lng){return typeof lat==='number'&&typeof lng==='number'&&isFinite(lat)&&isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180}
+  function officeSet(){return validLL(S.settings.lat,S.settings.lng)}
+  function curDist(){return(pos&&officeSet())?dist(pos.lat,pos.lng,S.settings.lat,S.settings.lng):null}
+  function renderGps(){
+    var g=$('chipGps'),d=$('chipDist');
+    if(gpsErr){g.className='chip bad';g.textContent='GPS: '+gpsErr}
+    else if(!pos){g.className='chip';g.textContent='GPS: mencari…'}
+    else{g.className='chip '+(pos.acc<=50?'ok':'warn');g.textContent='GPS: akurasi ±'+Math.round(pos.acc)+' m'}
+    var gh=$('gpsHint');
+    if(gpsErr==='Izin lokasi ditolak'){gh.hidden=false;gh.textContent='Izinkan lokasi: ketuk ikon di sebelah alamat Chrome, pilih Izin, lalu Lokasi, lalu tekan Ambil lokasi. Pastikan GPS HP menyala.'}
+    else gh.hidden=true;
+    if(!officeSet()){d.className='chip warn';d.textContent='Kantor belum diatur'}
+    else if(!pos){d.className='chip';d.textContent='Jarak: –'}
+    else{var m=Math.round(curDist()),inR=m<=S.settings.radius;d.className='chip '+(inR?'ok':'bad');d.textContent=(inR?'Dalam radius · ':'Di luar radius · ')+m+' m'}
+    $('officeLabel').textContent=officeSet()?('Radius '+S.settings.radius+' m dari kantor'):'Lokasi kantor belum diatur (menu Pengaturan)';
+  }
+
+  /* ---------- views ---------- */
+  function show(v){
+    document.querySelectorAll('.view').forEach(function(x){x.classList.toggle('on',x.id==='v-'+v)});
+    document.querySelectorAll('nav button').forEach(function(b){b.setAttribute('aria-selected',b.dataset.v===v?'true':'false')});
+    stopCam();
+    if(v==='absen'){startCam($('videoA'),$('camAoff'),$('camA'));startGps();renderEmpSel()}
+    if(v==='karyawan'){startCam($('videoK'),$('camKoff'),$('camK'));renderEmps();renderSamples()}
+    if(v==='riwayat')renderHistory();
+    if(v==='atur'){startGps();fillSettings()}
+    window.scrollTo(0,0);
+  }
+  document.querySelectorAll('nav button').forEach(function(b){b.addEventListener('click',function(){show(b.dataset.v)})});
+
+  /* ---------- absen ---------- */
+  function renderEmpSel(){
+    var sel=$('empSel');
+    if(!S.employees.length){sel.innerHTML='<option value="">Belum ada karyawan</option>';return}
+    sel.innerHTML=S.employees.map(function(e){return '<option value="'+e.id+'">'+esc(e.name)+'</option>'}).join('');
+    if(S.settings.lastEmp&&S.employees.some(function(e){return e.id===S.settings.lastEmp}))sel.value=S.settings.lastEmp;
+  }
+  $('empSel').addEventListener('change',function(){S.settings.lastEmp=this.value;save()});
+  function showResult(ok,title,text){$('result').innerHTML='<div class="result '+(ok?'ok':'bad')+'" role="status"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
+  function toastErr(t){showResult(false,'Gagal',t)}
+
+  $('btnAbsen').addEventListener('click',function(){
+    var btn=this;
+    var emp=S.employees.find(function(e){return e.id===$('empSel').value});
+    if(!emp){showResult(false,'Pilih karyawan','Tambahkan karyawan dulu di menu Karyawan.');return}
+    var st=S.settings,d=curDist();
+    if(st.requireGeo&&officeSet()){
+      if(!pos){showResult(false,'Lokasi belum didapat','Tekan Ambil lokasi dan izinkan akses lokasi, lalu coba lagi.');return}
+      if(d>st.radius){showResult(false,'Di luar radius kantor','Jarak Anda '+Math.round(d)+' m, batas '+st.radius+' m.');return}
+    }
+    takePhoto(function(shot){
+      if(!shot){showResult(false,'Gagal mengambil foto','Coba lagi.');return}
+      btn.disabled=true;
+      detectFace(shot.full).then(function(n){
+        if(n===0){$('camA').classList.add('bad');btn.disabled=false;showResult(false,'Wajah tidak terdeteksi','Foto selfie dengan wajah jelas di tengah frame.');return}
+        $('camA').classList.remove('bad');
+        var score=bestScore(emp,shot.sig);
+        if(st.requireMatch&&score<st.threshold){btn.disabled=false;showResult(false,'Wajah tidak cocok','Kecocokan '+score+'%, batas '+st.threshold+'%. Perbaiki cahaya atau daftarkan ulang foto wajah.');return}
+        var today=dayKey(Date.now()),mine=S.logs.filter(function(l){return l.empId===emp.id&&dayKey(l.ts)===today});
+        var hasIn=mine.some(function(l){return l.type==='masuk'}),hasOut=mine.some(function(l){return l.type==='pulang'});
+        if(hasIn&&hasOut){btn.disabled=false;showResult(false,'Sudah lengkap','Absen masuk dan pulang '+emp.name+' hari ini sudah tercatat.');return}
+        var type=hasIn?'pulang':'masuk',now=Date.now();
+        S.logs.push({id:uid(),empId:emp.id,name:emp.name,type:type,ts:now,lat:pos?pos.lat:null,lng:pos?pos.lng:null,dist:d===null?null:Math.round(d),score:score,photo:shot.thumb});
+        btn.disabled=false;
+        if(save())showResult(true,'Absen '+type+' tercatat','Pukul '+hhmm(now)+' · '+emp.name+(d!==null?' · '+Math.round(d)+' m dari kantor':'')+' · kecocokan '+score+'%');
+      });
+    });
+  });
+
+  /* ---------- karyawan ---------- */
+  var samples=[];
+  function renderSamples(){$('samples').innerHTML=samples.map(function(s){return '<img alt="Foto wajah" src="'+s.thumb+'">'}).join('')}
+  $('btnShot').addEventListener('click',function(){
+    if(samples.length>=3){toastAlert('Maksimal 3 foto.');return}
+    takePhoto(function(s){
+      if(!s){toastAlert('Gagal mengambil foto. Coba lagi.');return}
+      if(samples.length>=3){toastAlert('Maksimal 3 foto.');return}
+      samples.push(s);renderSamples();
+    });
+  });
+  function toastAlert(t){$('csvHint').textContent=t;alert(t)}
+  $('btnSaveEmp').addEventListener('click',function(){
+    var name=$('newName').value.trim();
+    if(!name){alert('Isi nama karyawan.');return}
+    if(!samples.length){alert('Ambil minimal 1 foto wajah.');return}
+    S.employees.push({id:uid(),name:name,photo:samples[0].thumb,sigs:samples.map(function(s){return s.sig})});
+    samples=[];$('newName').value='';
+    if(save()){renderSamples();renderEmps()}
+  });
+  function renderEmps(){
+    var el=$('empList');
+    if(!S.employees.length){el.innerHTML='<li class="empty">Belum ada karyawan terdaftar.</li>';return}
+    el.innerHTML=S.employees.map(function(e){return '<li class="item"><img alt="" src="'+e.photo+'"><div class="grow"><div class="name">'+esc(e.name)+'</div><div class="meta">'+e.sigs.length+' foto wajah</div></div><button class="small danger" data-del="'+e.id+'">Hapus</button></li>'}).join('');
+    el.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){
+      if(!confirm('Hapus karyawan ini? Catatan absennya tetap tersimpan.'))return;
+      S.employees=S.employees.filter(function(e){return e.id!==b.dataset.del});save();renderEmps()})});
+  }
+
+  /* ---------- riwayat ---------- */
+  function renderHistory(){
+    var day=$('dateSel').value;
+    var logs=S.logs.filter(function(l){return dayKey(l.ts)===day}).sort(function(a,b){return a.ts-b.ts});
+    var by={};logs.forEach(function(l){(by[l.empId]=by[l.empId]||{name:l.name}) [l.type]=l});
+    var ids=Object.keys(by),jam=S.settings.jamMasuk;
+    if(!ids.length)$('recap').innerHTML='<div class="empty">Belum ada absen di tanggal ini.</div>';
+    else $('recap').innerHTML='<table><thead><tr><th>Nama</th><th>Masuk</th><th>Pulang</th><th>Status</th></tr></thead><tbody>'+ids.map(function(id){
+      var r=by[id],inT=r.masuk?hhmm(r.masuk.ts):'–',late=r.masuk&&inT>jam;
+      return '<tr><td>'+esc(r.name)+'</td><td>'+inT+'</td><td>'+(r.pulang?hhmm(r.pulang.ts):'–')+'</td><td class="'+(late?'late':'')+'">'+(late?'Terlambat':(r.masuk?'Tepat waktu':'–'))+'</td></tr>'}).join('')+'</tbody></table>';
+    $('logList').innerHTML=logs.length?logs.slice().reverse().map(function(l){
+      return '<li class="item"><img alt="" src="'+(l.photo||'')+'"><div class="grow"><div class="name">'+esc(l.name)+' · '+l.type+'</div><div class="meta">'+hhmm(l.ts)+(l.dist!==null?' · '+l.dist+' m':'')+' · cocok '+l.score+'%</div></div></li>'}).join(''):'<li class="empty">Kosong.</li>';
+  }
+  $('dateSel').addEventListener('change',renderHistory);
+  function csvOf(list){
+    var rows=[['Tanggal','Jam','Nama','Jenis','Jarak_m','Kecocokan_%','Lat','Lng']];
+    list.sort(function(a,b){return a.ts-b.ts}).forEach(function(l){rows.push([dayKey(l.ts),hhmm(l.ts),l.name,l.type,l.dist===null?'':l.dist,l.score,l.lat===null?'':l.lat,l.lng===null?'':l.lng])});
+    return rows.map(function(r){return r.map(function(c){c=String(c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c}).join(',')}).join('\n');
+  }
+  function copyCsv(text){
+    var box=$('csvBox');box.hidden=false;box.value=text;box.focus();box.select();
+    var done=function(ok){$('csvHint').textContent=ok?'CSV disalin. Tempel ke Excel atau Google Sheets.':'Teks CSV sudah dipilih. Salin manual lalu tempel ke Excel atau Google Sheets.'};
+    try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){done(true)},function(){done(false)});return}}catch(e){}
+    done(false);
+  }
+  $('btnCsvDay').addEventListener('click',function(){var day=$('dateSel').value;copyCsv(csvOf(S.logs.filter(function(l){return dayKey(l.ts)===day})))});
+  $('btnCsvAll').addEventListener('click',function(){copyCsv(csvOf(S.logs.slice()))});
+
+  /* ---------- pengaturan ---------- */
+  function fillSettings(){var s=S.settings;
+    $('sLat').value=s.lat===null?'':s.lat;$('sLng').value=s.lng===null?'':s.lng;$('sRad').value=s.radius;$('sJam').value=s.jamMasuk;
+    $('sThr').value=s.threshold;$('sGeo').checked=s.requireGeo;$('sMatch').checked=s.requireMatch}
+  $('btnSetOffice').addEventListener('click',function(){
+    var fill=function(p){$('sLat').value=p.lat.toFixed(6);$('sLng').value=p.lng.toFixed(6)};
+    if(!navigator.geolocation){alert('Browser tidak mendukung GPS. Isi lintang dan bujur manual.');return}
+    navigator.geolocation.getCurrentPosition(function(p){gpsOk(p);fill(pos)},function(e){gpsFail(e);
+      if(pos)fill(pos);else alert('Lokasi belum didapat. Izinkan akses lokasi, atau isi lintang dan bujur manual (salin dari Google Maps).')},
+      {enableHighAccuracy:true,maximumAge:0,timeout:20000});
+  });
+  function parsePaste(){
+    var t=$('sPaste').value,h=$('pasteHint');if(!t.trim())return;
+    var m=t.match(/-?\d+\.\d+/g)||t.match(/-?\d+/g);
+    if(m&&m.length>=2&&validLL(parseFloat(m[0]),parseFloat(m[1]))){
+      $('sLat').value=parseFloat(m[0]);$('sLng').value=parseFloat(m[1]);
+      h.textContent='Terisi: '+parseFloat(m[0])+', '+parseFloat(m[1])+'. Tekan Simpan pengaturan.';
+    }else h.textContent='Format tidak dikenali. Contoh yang benar: -6.208763, 106.845599 (lintang -90 sampai 90, bujur -180 sampai 180).';
+  }
+  $('sPaste').addEventListener('input',parsePaste);$('sPaste').addEventListener('change',parsePaste);
+  $('btnSaveSet').addEventListener('click',function(){
+    var lat=parseFloat($('sLat').value.replace(',','.')),lng=parseFloat($('sLng').value.replace(',','.'));
+    if(isNaN(lat)&&isNaN(lng)){lat=null;lng=null}
+    else if(!validLL(lat,lng)){alert('Koordinat tidak valid. Lintang harus -90 sampai 90 dan bujur -180 sampai 180. Contoh Jakarta: -6.2088 dan 106.8456.');return}
+    S.settings.lat=lat;S.settings.lng=lng;
+    S.settings.radius=Math.max(10,parseInt($('sRad').value,10)||100);
+    S.settings.jamMasuk=$('sJam').value||'08:00';
+    S.settings.threshold=Math.min(99,Math.max(30,parseInt($('sThr').value,10)||70));
+    S.settings.requireGeo=$('sGeo').checked;S.settings.requireMatch=$('sMatch').checked;
+    if(save()){renderGps();alert('Pengaturan tersimpan.')}
+  });
+  $('btnWipe').addEventListener('click',function(){
+    if(!confirm('Hapus semua catatan absen? Ini tidak bisa dibatalkan.'))return;
+    S.logs=[];save();alert('Catatan absen dihapus.')});
+
+  /* ---------- init ---------- */
+  load();
+  var t=new Date();$('dateSel').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());
+  renderGps();show('absen');
+  document.addEventListener('visibilitychange',function(){if(document.hidden)stopCam()});
+})();
+</script>
+</body>
+</html>
