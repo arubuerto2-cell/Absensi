@@ -6,6 +6,7 @@
 <title>Absensi Wajah + GPS</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/dist/face-api.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
@@ -143,6 +144,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <div class="chips">
         <span class="chip" id="chipGps">GPS: mencari…</span>
         <span class="chip" id="chipDist">Jarak: –</span>
+        <span class="chip" id="chipModel">Model wajah: memuat…</span>
       </div>
       <button class="small" id="btnGps">Ambil lokasi</button>
     </div>
@@ -251,6 +253,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <div class="field">
         <label for="sThr">Batas kecocokan wajah (%)</label>
         <input id="sThr" type="number" min="30" max="99">
+        <p class="hint">Makin tinggi makin ketat. Disarankan 50–60. Jika sering ditolak padahal orangnya benar, turunkan sedikit.</p>
       </div>
       <label class="check"><input type="checkbox" id="sGeo"><span>Wajib berada dalam radius kantor</span></label>
       <label class="check"><input type="checkbox" id="sMatch"><span>Wajib wajah cocok</span></label>
@@ -281,7 +284,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   var $=function(id){return document.getElementById(id)};
   var sb=null;
   try{if(/^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL)&&SUPABASE_KEY.indexOf('ISI_')!==0&&window.supabase)sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
-  var S={settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:70,requireGeo:true,requireMatch:true}};
+  var S={settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:50,requireGeo:true,requireMatch:true}};
   var isAdmin=false,adminEmail='',pending='absen';
   var ADMIN_V={riwayat:1,karyawan:1,atur:1};
 
@@ -326,10 +329,34 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     var sd=Math.sqrt(sq/arr.length)||1;arr=arr.map(function(v){return Math.round(v/sd*100)/100});
     return {full:full,thumb:t.toDataURL('image/jpeg',0.6),sig:arr};
   }
-  function detectFace(canvas){
-    if(!('FaceDetector' in window))return Promise.resolve(null);
-    try{return new window.FaceDetector({fastMode:true,maxDetectedFaces:2}).detect(canvas).then(function(f){return f.length}).catch(function(){return null})}catch(e){return Promise.resolve(null)}
+  /* ---- pengenal wajah (face-api, berjalan di browser) ---- */
+  var MODEL_BASE='https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1/model/',modelsP=null;
+  function loadModels(){
+    if(modelsP)return modelsP;
+    if(!window.faceapi)return Promise.reject(new Error('Pustaka pengenal wajah gagal dimuat. Periksa koneksi internet lalu muat ulang halaman.'));
+    modelsP=Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_BASE),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_BASE),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_BASE)
+    ]).catch(function(){modelsP=null;throw new Error('Model pengenal wajah gagal dimuat. Periksa koneksi internet lalu muat ulang halaman.')});
+    return modelsP;
   }
+  function setModel(state,txt){var c=$('chipModel');c.className='chip '+(state==='ok'?'ok':state==='bad'?'bad':'');c.textContent=txt}
+  function preloadModels(){
+    setModel('','Model wajah: memuat…');
+    loadModels().then(function(){setModel('ok','Model wajah: siap')},function(){setModel('bad','Model wajah gagal dimuat · ketuk untuk ulang')});
+  }
+  $('chipModel').addEventListener('click',function(){if(this.classList.contains('bad'))preloadModels()});
+  function detectOnce(canvas,thr){
+    return faceapi.detectSingleFace(canvas,new faceapi.TinyFaceDetectorOptions({inputSize:416,scoreThreshold:thr})).withFaceLandmarks().withFaceDescriptor();
+  }
+  /* hasil: array 128 angka, atau null bila tidak ada wajah */
+  function getDescriptor(canvas){
+    return loadModels().then(function(){return detectOnce(canvas,0.5)}).then(function(r){
+      return r||detectOnce(canvas,0.3);
+    }).then(function(r){return r?Array.prototype.map.call(r.descriptor,function(v){return Math.round(v*10000)/10000}):null});
+  }
+
   var photoIn=$('photoIn');
   function fileToCanvas(f){return new Promise(function(res,rej){
     var url=URL.createObjectURL(f),img=new Image();
@@ -385,7 +412,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   }
 
   /* ---------- pengaturan dari database ---------- */
-  function mapSettings(r){return {lat:r.lat,lng:r.lng,radius:r.radius,jamMasuk:r.jam_masuk,threshold:r.threshold,requireGeo:r.require_geo,requireMatch:r.require_match}}
+  function mapSettings(r){return {lat:r.lat,lng:r.lng,radius:r.radius,jamMasuk:r.jam_masuk,threshold:r.face_threshold,requireGeo:r.require_geo,requireMatch:r.require_match}}
   function loadSettings(){
     if(!sb)return Promise.resolve();
     return sb.from('settings').select('*').eq('id',1).maybeSingle().then(function(r){
@@ -454,6 +481,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   function showResult(ok,title,text){$('result').innerHTML='<div class="result '+(ok?'ok':'bad')+'" role="status"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
   function toastErr(t){showResult(false,'Gagal',t)}
 
+  function busy(b,on){b.disabled=on;b.textContent=on?'Mengenali wajah…':'Absen sekarang'}
   $('btnAbsen').addEventListener('click',function(){
     if(!needDb())return;
     var btn=this,id=$('empSel').value;
@@ -464,19 +492,20 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     }
     takePhoto(function(shot){
       if(!shot){showResult(false,'Gagal mengambil foto','Coba lagi.');return}
-      btn.disabled=true;
-      detectFace(shot.full).then(function(n){
-        if(n===0){$('camA').classList.add('bad');btn.disabled=false;showResult(false,'Wajah tidak terdeteksi','Foto selfie dengan wajah jelas di tengah frame.');return}
+      busy(btn,true);
+      getDescriptor(shot.full).then(function(desc){
+        if(!desc){$('camA').classList.add('bad');busy(btn,false);showResult(false,'Wajah tidak terdeteksi','Foto selfie dengan wajah jelas di tengah frame dan cahaya cukup.');return}
         $('camA').classList.remove('bad');
-        var args={p_sig:shot.sig,p_lat:pos?pos.lat:null,p_lng:pos?pos.lng:null,p_photo:shot.thumb};
+        var args={p_desc:desc,p_lat:pos?pos.lat:null,p_lng:pos?pos.lng:null,p_photo:shot.thumb};
         if(id)args.p_emp=id;
-        return sb.rpc(id?'submit_attendance':'submit_attendance_auto',args).then(function(r){
-          btn.disabled=false;
+        return sb.rpc(id?'absen_manual':'absen_auto',args).then(function(r){
+          busy(btn,false);
           if(r.error){toastErr(dbErr(r.error));return}
           var x=r.data||{};
           if(x.ok)showResult(true,x.name+' · absen '+x.type+' tercatat','Pukul '+hhmm(x.ts)+(x.dist!=null?' · '+x.dist+' m dari kantor':'')+' · kecocokan '+x.score+'%');
           else if(x.code==='nomatch')showResult(false,'Wajah tidak dikenali','Kecocokan tertinggi '+x.score+'%, batas '+x.threshold+'%. Coba lagi dengan cahaya lebih terang dan wajah lurus, atau pilih nama manual. Bila sering gagal, minta admin daftarkan ulang foto wajah.');
           else if(x.code==='ambiguous')showResult(false,'Wajah mirip beberapa karyawan','Sistem belum yakin siapa Anda. Coba foto ulang dengan cahaya lebih baik, atau pilih nama manual.');
+          else if(x.code==='nodesc')showResult(false,'Wajah belum didaftarkan ulang',(x.name||'Karyawan ini')+' perlu didaftarkan ulang oleh admin dengan model wajah yang baru.');
           else if(x.code==='noemp'&&!id)showResult(false,'Belum ada karyawan','Minta admin mendaftarkan karyawan dulu.');
           else if(x.code==='match')showResult(false,'Wajah tidak cocok','Kecocokan '+x.score+'%, batas '+x.threshold+'%. Perbaiki cahaya atau minta admin mendaftarkan ulang foto wajah.');
           else if(x.code==='radius')showResult(false,'Di luar radius kantor','Jarak Anda '+x.dist+' m, batas '+x.radius+' m.');
@@ -484,7 +513,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
           else if(x.code==='done')showResult(false,'Sudah lengkap','Absen masuk dan pulang '+(x.name||'karyawan ini')+' hari ini sudah tercatat.');
           else showResult(false,'Karyawan tidak ditemukan','Muat ulang halaman lalu pilih nama lagi.');
         });
-      }).catch(function(e){btn.disabled=false;toastErr(dbErr(e))});
+      }).catch(function(e){busy(btn,false);toastErr(dbErr(e))});
     });
   });
 
@@ -493,10 +522,15 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   function renderSamples(){$('samples').innerHTML=samples.map(function(s){return '<img alt="Foto wajah" src="'+s.thumb+'">'}).join('')}
   $('btnShot').addEventListener('click',function(){
     if(samples.length>=3){alert('Maksimal 3 foto.');return}
+    var btn=this;
     takePhoto(function(s){
       if(!s){alert('Gagal mengambil foto. Coba lagi.');return}
       if(samples.length>=3){alert('Maksimal 3 foto.');return}
-      samples.push(s);renderSamples();
+      btn.disabled=true;btn.textContent='Memproses…';
+      getDescriptor(s.full).then(function(desc){
+        if(!desc){alert('Wajah tidak terdeteksi di foto ini. Ulangi dengan wajah lurus dan cahaya cukup.');return}
+        s.desc=desc;samples.push(s);renderSamples();
+      }).catch(function(e){alert(dbErr(e))}).then(function(){btn.disabled=false;btn.textContent='Ambil foto wajah'});
     });
   });
   $('btnSaveEmp').addEventListener('click',function(){
@@ -505,7 +539,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     if(!name){alert('Isi nama karyawan.');return}
     if(!samples.length){alert('Ambil minimal 1 foto wajah.');return}
     var btn=this;btn.disabled=true;
-    sb.from('employees').insert({name:name,photo:samples[0].thumb,sigs:samples.map(function(s){return s.sig})}).then(function(r){
+    sb.from('employees').insert({name:name,photo:samples[0].thumb,sigs:[],descriptors:samples.map(function(s){return s.desc})}).then(function(r){
       btn.disabled=false;
       if(r.error){alert('Gagal menyimpan: '+dbErr(r.error));return}
       samples=[];$('newName').value='';renderSamples();loadEmps();
@@ -514,11 +548,11 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   function loadEmps(){
     var el=$('empList');
     if(!sb){el.innerHTML='<li class="empty">Database belum terhubung.</li>';return}
-    sb.from('employees').select('id,name,photo,sigs').order('name').then(function(r){
+    sb.from('employees').select('id,name,photo,descriptors').order('name').then(function(r){
       if(r.error){el.innerHTML='<li class="empty">Gagal memuat: '+esc(dbErr(r.error))+'</li>';return}
       var list=r.data||[];
       if(!list.length){el.innerHTML='<li class="empty">Belum ada karyawan terdaftar.</li>';return}
-      el.innerHTML=list.map(function(e){return '<li class="item"><img alt="" src="'+esc(e.photo||'')+'"><div class="grow"><div class="name">'+esc(e.name)+'</div><div class="meta">'+(e.sigs||[]).length+' foto wajah</div></div><button class="small danger" data-del="'+esc(e.id)+'">Hapus</button></li>'}).join('');
+      el.innerHTML=list.map(function(e){return '<li class="item"><img alt="" src="'+esc(e.photo||'')+'"><div class="grow"><div class="name">'+esc(e.name)+'</div><div class="meta">'+((e.descriptors||[]).length?(e.descriptors.length+' foto wajah'):'<span class="late">Perlu daftar ulang (hapus lalu daftarkan lagi)</span>')+'</div></div><button class="small danger" data-del="'+esc(e.id)+'">Hapus</button></li>'}).join('');
       el.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){
         if(!confirm('Hapus karyawan ini? Catatan absennya tetap tersimpan.'))return;
         sb.from('employees').delete().eq('id',b.dataset.del).then(function(x){if(x.error)alert('Gagal menghapus: '+dbErr(x.error));loadEmps()});
@@ -648,7 +682,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     if(isNaN(lat)&&isNaN(lng)){lat=null;lng=null}
     else if(!validLL(lat,lng)){alert('Koordinat tidak valid. Lintang harus -90 sampai 90 dan bujur -180 sampai 180. Contoh Jakarta: -6.2088 dan 106.8456.');return}
     var row={lat:lat,lng:lng,radius:Math.max(10,parseInt($('sRad').value,10)||100),jam_masuk:$('sJam').value||'08:00',
-      threshold:Math.min(99,Math.max(30,parseInt($('sThr').value,10)||70)),require_geo:$('sGeo').checked,require_match:$('sMatch').checked};
+      face_threshold:Math.min(99,Math.max(30,parseInt($('sThr').value,10)||50)),require_geo:$('sGeo').checked,require_match:$('sMatch').checked};
     var btn=this;btn.disabled=true;
     sb.from('settings').update(row).eq('id',1).select().then(function(r){
       btn.disabled=false;
@@ -670,6 +704,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   renderGps();
   if(!sb)$('setup').hidden=false;
   refreshAuth().then(function(){show('absen')},function(){show('absen')});
+  preloadModels();
   document.addEventListener('visibilitychange',function(){if(document.hidden)stopCam()});
 })();
 </script>
