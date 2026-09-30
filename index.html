@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Absensi Wajah + GPS</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
@@ -107,6 +109,11 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
 .view{display:none}
 .view.on{display:block}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:14px;padding:14px;margin-bottom:12px;font-size:14px}
+.banner b{display:block;font-family:var(--display);font-size:16px;margin-bottom:2px}
+.who{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;margin-bottom:12px;font-size:13px;color:var(--muted)}
+.who span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -120,6 +127,9 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     <div class="clock"><span id="clock">--:--:--</span><small id="dateLabel"></small></div>
   </header>
 
+  <div class="banner" id="setup" hidden><b>Database belum terhubung</b>Isi SUPABASE_URL dan SUPABASE_KEY di bagian atas script pada file index.html, lalu unggah ulang.</div>
+  <div class="who" id="who" hidden><span>Admin: <b id="whoTxt"></b></span><button class="small" id="btnLogout">Keluar</button></div>
+
   <!-- ABSEN -->
   <section class="view on" id="v-absen">
     <div class="panel">
@@ -132,7 +142,6 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <video id="videoA" playsinline muted autoplay></video>
       <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice"><ellipse class="oval" cx="150" cy="185" rx="95" ry="125"/></svg>
       <div class="off" id="camAoff">Kamera belum aktif</div>
-      <div class="msg" id="camAmsg" hidden></div>
     </div>
     <div class="gpsrow">
       <div class="chips">
@@ -144,7 +153,19 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     <p class="hint" id="gpsHint" hidden style="margin:-4px 0 12px"></p>
     <div id="result"></div>
     <button class="primary big" id="btnAbsen">Absen sekarang</button>
-    <p class="hint" id="absenHint">Tombol akan membuka kamera depan HP untuk selfie. Sistem otomatis memilih masuk atau pulang sesuai catatan hari ini.</p>
+    <p class="hint">Sistem otomatis memilih masuk atau pulang sesuai catatan hari ini.</p>
+  </section>
+
+  <!-- LOGIN ADMIN -->
+  <section class="view" id="v-login">
+    <div class="panel">
+      <h2>Masuk admin</h2>
+      <p class="hint" style="margin-top:0;margin-bottom:12px">Riwayat, Karyawan, dan Pengaturan hanya bisa dibuka oleh admin.</p>
+      <div class="field"><label for="lgEmail">Email</label><input id="lgEmail" type="email" autocomplete="username" inputmode="email" autocapitalize="none"></div>
+      <div class="field"><label for="lgPass">Password</label><input id="lgPass" type="password" autocomplete="current-password"></div>
+      <div id="lgMsg"></div>
+      <button class="primary big" id="btnLogin">Masuk</button>
+    </div>
   </section>
 
   <!-- RIWAYAT -->
@@ -162,13 +183,13 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <ul class="list" id="logList"></ul>
     </div>
     <div class="panel">
-      <h2>Ekspor</h2>
-      <div class="row">
-        <button id="btnCsvDay">Salin CSV tanggal ini</button>
-        <button id="btnCsvAll">Salin CSV semua</button>
+      <h2>Ekspor Excel</h2>
+      <div class="row field">
+        <div><label for="expFrom">Dari</label><input type="date" id="expFrom"></div>
+        <div><label for="expTo">Sampai</label><input type="date" id="expTo"></div>
       </div>
-      <textarea id="csvBox" readonly hidden style="margin-top:10px" aria-label="Isi CSV"></textarea>
-      <p class="hint" id="csvHint">Tempel hasilnya ke Excel atau Google Sheets.</p>
+      <button class="primary" id="btnXlsx" style="width:100%">Unduh Excel (.xlsx)</button>
+      <p class="hint" id="xlsxHint">File berisi tiga lembar: Kehadiran, Rekap Harian, dan Rekap Karyawan.</p>
     </div>
   </section>
 
@@ -202,12 +223,12 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   <section class="view" id="v-atur">
     <div class="panel">
       <h2>Lokasi kantor</h2>
-      <p class="hint" style="margin-top:0;margin-bottom:10px">Bila GPS tidak bisa dipakai di halaman ini, isi koordinat lewat kolom Google Maps di bawah tombol.</p>
+      <p class="hint" style="margin-top:0;margin-bottom:10px">Buka halaman ini dari lokasi kantor, lalu tekan tombol di bawah. Bisa juga tempel koordinat dari Google Maps.</p>
       <button class="primary" id="btnSetOffice" style="width:100%;margin-bottom:12px">Pakai lokasi saya sekarang</button>
       <div class="field">
         <label for="sPaste">Tempel koordinat dari Google Maps</label>
-        <input id="sPaste" placeholder="Contoh: -6.208763, 106.845599" autocomplete="off" inputmode="text">
-        <p class="hint" id="pasteHint">Di Google Maps, tekan lama titik kantor, lalu ketuk angka koordinat yang muncul untuk menyalin. Tempel di sini, lintang dan bujur terisi otomatis.</p>
+        <input id="sPaste" placeholder="Contoh: -6.208763, 106.845599" autocomplete="off">
+        <p class="hint" id="pasteHint">Di Google Maps, tekan lama titik kantor, lalu ketuk angka koordinat untuk menyalin.</p>
       </div>
       <div class="row field">
         <div><label for="sLat">Lintang</label><input id="sLat" inputmode="decimal"></div>
@@ -234,7 +255,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     </div>
     <div class="panel">
       <h2>Data</h2>
-      <p class="hint" style="margin-top:0;margin-bottom:10px">Data disimpan di browser HP/komputer ini saja. Kosongkan bila ingin memulai dari awal.</p>
+      <p class="hint" style="margin-top:0;margin-bottom:10px">Data tersimpan di database. Unduh Excel dulu bila perlu arsip sebelum menghapus.</p>
       <button class="danger" id="btnWipe" style="width:100%">Hapus semua catatan absen</button>
     </div>
   </section>
@@ -249,16 +270,24 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
 
 <script>
 (function(){
-  var KEY='absensi-wajah-gps-v1';
-  var S={employees:[],logs:[],settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:70,requireGeo:true,requireMatch:true,lastEmp:''}};
+  /* ====== ISI DUA BARIS INI DARI SUPABASE (Project Settings > API) ====== */
+  var SUPABASE_URL='https://xhimebsxzjyguphobajw.supabase.co';
+  var SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhoaW1lYnN4emp5Z3VwaG9iYWp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3MzgyMDAsImV4cCI6MjEwNjMxNDIwMH0.yPx-Z_6SiPAzp2YYFiUKnF3MuUr1WLUzjA16jgKbK2E';   /* kunci "anon" atau "publishable" (BUKAN service_role) */
+  /* ===================================================================== */
+
   var $=function(id){return document.getElementById(id)};
-  function load(){try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);if(d&&d.employees){S.employees=d.employees;S.logs=d.logs||[];S.settings=Object.assign(S.settings,d.settings||{});if(!validLL(S.settings.lat,S.settings.lng)){S.settings.lat=null;S.settings.lng=null}}}}catch(e){}}
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(S));return true}catch(e){toastErr('Penyimpanan penuh atau diblokir. Hapus catatan lama lalu coba lagi.');return false}}
-  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+  var sb=null;
+  try{if(/^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL)&&SUPABASE_KEY.indexOf('ISI_')!==0&&window.supabase)sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
+  var S={settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:70,requireGeo:true,requireMatch:true}};
+  var isAdmin=false,adminEmail='',pending='absen',LAST='absensi-last-emp';
+  var ADMIN_V={riwayat:1,karyawan:1,atur:1};
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
   function pad(n){return n<10?'0'+n:''+n}
-  function dayKey(ts){var d=new Date(ts);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
+  function ymd(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())}
   function hhmm(ts){var d=new Date(ts);return pad(d.getHours())+':'+pad(d.getMinutes())}
-  function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+  function needDb(){if(sb)return true;$('setup').hidden=false;alert('Database belum terhubung. Isi SUPABASE_URL dan SUPABASE_KEY di index.html.');return false}
+  function dbErr(e){return (e&&e.message)?e.message:'Tidak bisa terhubung ke server.'}
 
   /* ---------- clock ---------- */
   function tick(){var d=new Date();$('clock').textContent=pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds());
@@ -276,19 +305,16 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},audio:false}).then(function(s){
       stream=s;activeVideo=video;video.srcObject=s;video.play().catch(function(){});
       offEl.style.display='none';wrap.classList.add('ready');
-    }).catch(function(e){
-      fallbackCam(offEl,wrap);
-    });
+    }).catch(function(){fallbackCam(offEl,wrap)});
   }
   function fallbackCam(offEl,wrap){
     wrap.classList.add('fallback');offEl.style.display='flex';
-    offEl.textContent='Pratinjau langsung tidak tersedia di halaman ini. Tekan tombol di bawah untuk membuka kamera HP dan mengambil selfie.';
+    offEl.textContent='Pratinjau langsung tidak tersedia. Izinkan kamera untuk situs ini, atau tekan tombol di bawah untuk membuka kamera HP dan mengambil selfie.';
   }
   function grab(video){
     var vw=video.videoWidth||video.width,vh=video.videoHeight||video.height;if(!vw||!vh)return null;
-    var side=Math.min(vw,vh),sx=(vw-side)/2,sy=(vh-side)/2;
     var full=document.createElement('canvas');full.width=vw;full.height=vh;full.getContext('2d').drawImage(video,0,0,vw,vh);
-    var crop=side*0.72,cx=(vw-crop)/2,cy=(vh-crop)/2-vh*0.02;
+    var side=Math.min(vw,vh),crop=side*0.72,cx=(vw-crop)/2,cy=(vh-crop)/2-vh*0.02;
     var t=document.createElement('canvas');t.width=t.height=120;t.getContext('2d').drawImage(video,cx,cy,crop,crop,0,0,120,120);
     var g=document.createElement('canvas');g.width=g.height=16;var gx=g.getContext('2d');gx.drawImage(video,cx,cy,crop,crop,0,0,16,16);
     var px=gx.getImageData(0,0,16,16).data,arr=[],i,sum=0;
@@ -297,13 +323,10 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     var sd=Math.sqrt(sq/arr.length)||1;arr=arr.map(function(v){return Math.round(v/sd*100)/100});
     return {full:full,thumb:t.toDataURL('image/jpeg',0.6),sig:arr};
   }
-  function similarity(a,b){var s=0;for(var i=0;i<a.length;i++)s+=a[i]*b[i];return Math.max(0,s/a.length)*100}
-  function bestScore(emp,sig){var best=0;(emp.sigs||[]).forEach(function(x){var s=similarity(sig,x);if(s>best)best=s});return Math.round(best)}
   function detectFace(canvas){
     if(!('FaceDetector' in window))return Promise.resolve(null);
     try{return new window.FaceDetector({fastMode:true,maxDetectedFaces:2}).detect(canvas).then(function(f){return f.length}).catch(function(){return null})}catch(e){return Promise.resolve(null)}
   }
-
   var photoIn=$('photoIn');
   function fileToCanvas(f){return new Promise(function(res,rej){
     var url=URL.createObjectURL(f),img=new Image();
@@ -313,7 +336,6 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     img.onerror=function(){URL.revokeObjectURL(url);rej()};
     img.src=url;
   })}
-  /* Ambil foto: pakai pratinjau langsung bila ada, kalau tidak buka kamera bawaan HP */
   function takePhoto(cb){
     if(stream&&activeVideo&&activeVideo.videoWidth){cb(grab(activeVideo));return}
     photoIn.onchange=function(){
@@ -328,14 +350,14 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   var pos=null,watchId=null,gpsErr=null;
   function dist(lat1,lon1,lat2,lon2){var R=6371000,r=Math.PI/180,dLat=(lat2-lat1)*r,dLon=(lon2-lon1)*r;
     var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)*Math.sin(dLon/2);
-    return 2*R*Math.asin(Math.sqrt(a))}
+    return 2*R*Math.asin(Math.min(1,Math.sqrt(a)))}
+  function gpsOk(p){pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};gpsErr=null;renderGps()}
+  function gpsFail(e){gpsErr=e.code===1?'Izin lokasi ditolak':(e.code===3?'Waktu habis':'Lokasi tidak tersedia');renderGps()}
   function startGps(){
     if(watchId!==null)return;
     if(!navigator.geolocation){gpsErr='Browser tidak mendukung GPS';renderGps();return}
     watchId=navigator.geolocation.watchPosition(gpsOk,gpsFail,{enableHighAccuracy:true,maximumAge:5000,timeout:20000});
   }
-  function gpsOk(p){pos={lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy};gpsErr=null;renderGps()}
-  function gpsFail(e){gpsErr=e.code===1?'Izin lokasi ditolak':(e.code===3?'Waktu habis':'Lokasi tidak tersedia');renderGps()}
   $('btnGps').addEventListener('click',function(){
     if(!navigator.geolocation){gpsErr='Browser tidak mendukung GPS';renderGps();return}
     var g=$('chipGps');g.className='chip';g.textContent='GPS: mencari…';
@@ -359,34 +381,84 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     $('officeLabel').textContent=officeSet()?('Radius '+S.settings.radius+' m dari kantor'):'Lokasi kantor belum diatur (menu Pengaturan)';
   }
 
+  /* ---------- pengaturan dari database ---------- */
+  function mapSettings(r){return {lat:r.lat,lng:r.lng,radius:r.radius,jamMasuk:r.jam_masuk,threshold:r.threshold,requireGeo:r.require_geo,requireMatch:r.require_match}}
+  function loadSettings(){
+    if(!sb)return Promise.resolve();
+    return sb.from('settings').select('*').eq('id',1).maybeSingle().then(function(r){
+      if(r.data){S.settings=mapSettings(r.data);if(!validLL(S.settings.lat,S.settings.lng)){S.settings.lat=null;S.settings.lng=null}}
+      renderGps();
+    },function(){});
+  }
+
+  /* ---------- auth ---------- */
+  function renderWho(){$('who').hidden=!isAdmin;$('whoTxt').textContent=adminEmail}
+  function refreshAuth(){
+    if(!sb)return Promise.resolve();
+    return sb.auth.getSession().then(function(r){
+      var s=r.data&&r.data.session;
+      if(!s){isAdmin=false;adminEmail='';renderWho();return}
+      return sb.rpc('is_admin').then(function(a){isAdmin=a.data===true;adminEmail=isAdmin?(s.user.email||''):'';renderWho()});
+    });
+  }
+  function lgMsg(t){$('lgMsg').innerHTML=t?'<div class="result bad" role="alert">'+esc(t)+'</div>':''}
+  function doLogin(){
+    if(!needDb())return;
+    var email=$('lgEmail').value.trim(),pass=$('lgPass').value;
+    if(!email||!pass){lgMsg('Isi email dan password.');return}
+    var btn=$('btnLogin');btn.disabled=true;lgMsg('');
+    sb.auth.signInWithPassword({email:email,password:pass}).then(function(r){
+      if(r.error){btn.disabled=false;lgMsg(/invalid/i.test(r.error.message)?'Email atau password salah.':dbErr(r.error));return}
+      return refreshAuth().then(function(){
+        btn.disabled=false;
+        if(!isAdmin){sb.auth.signOut();lgMsg('Akun ini bukan admin.');return}
+        $('lgPass').value='';show(pending);
+      });
+    },function(e){btn.disabled=false;lgMsg(dbErr(e))});
+  }
+  $('btnLogin').addEventListener('click',doLogin);
+  $('lgPass').addEventListener('keydown',function(e){if(e.key==='Enter')doLogin()});
+  $('btnLogout').addEventListener('click',function(){
+    if(!sb)return;
+    sb.auth.signOut().then(function(){isAdmin=false;adminEmail='';renderWho();show('absen')});
+  });
+
   /* ---------- views ---------- */
   function show(v){
-    document.querySelectorAll('.view').forEach(function(x){x.classList.toggle('on',x.id==='v-'+v)});
+    pending=v;
+    var target=(ADMIN_V[v]&&!isAdmin)?'login':v;
+    document.querySelectorAll('.view').forEach(function(x){x.classList.toggle('on',x.id==='v-'+target)});
     document.querySelectorAll('nav button').forEach(function(b){b.setAttribute('aria-selected',b.dataset.v===v?'true':'false')});
     stopCam();
-    if(v==='absen'){startCam($('videoA'),$('camAoff'),$('camA'));startGps();renderEmpSel()}
-    if(v==='karyawan'){startCam($('videoK'),$('camKoff'),$('camK'));renderEmps();renderSamples()}
-    if(v==='riwayat')renderHistory();
-    if(v==='atur'){startGps();fillSettings()}
+    if(target==='absen'){startCam($('videoA'),$('camAoff'),$('camA'));startGps();loadSettings();loadEmpSel()}
+    if(target==='karyawan'){startCam($('videoK'),$('camKoff'),$('camK'));loadEmps();renderSamples()}
+    if(target==='riwayat'){loadSettings().then(renderHistory)}
+    if(target==='atur'){startGps();loadSettings().then(fillSettings)}
     window.scrollTo(0,0);
   }
   document.querySelectorAll('nav button').forEach(function(b){b.addEventListener('click',function(){show(b.dataset.v)})});
 
   /* ---------- absen ---------- */
-  function renderEmpSel(){
+  function loadEmpSel(){
     var sel=$('empSel');
-    if(!S.employees.length){sel.innerHTML='<option value="">Belum ada karyawan</option>';return}
-    sel.innerHTML=S.employees.map(function(e){return '<option value="'+e.id+'">'+esc(e.name)+'</option>'}).join('');
-    if(S.settings.lastEmp&&S.employees.some(function(e){return e.id===S.settings.lastEmp}))sel.value=S.settings.lastEmp;
+    if(!sb){sel.innerHTML='<option value="">Database belum terhubung</option>';return}
+    sb.rpc('list_employees').then(function(r){
+      var list=r.data||[];
+      if(r.error){sel.innerHTML='<option value="">Gagal memuat daftar</option>';return}
+      if(!list.length){sel.innerHTML='<option value="">Belum ada karyawan</option>';return}
+      sel.innerHTML=list.map(function(e){return '<option value="'+esc(e.id)+'">'+esc(e.name)+'</option>'}).join('');
+      var last='';try{last=localStorage.getItem(LAST)||''}catch(e){}
+      if(last&&list.some(function(e){return e.id===last}))sel.value=last;
+    });
   }
-  $('empSel').addEventListener('change',function(){S.settings.lastEmp=this.value;save()});
+  $('empSel').addEventListener('change',function(){try{localStorage.setItem(LAST,this.value)}catch(e){}});
   function showResult(ok,title,text){$('result').innerHTML='<div class="result '+(ok?'ok':'bad')+'" role="status"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
   function toastErr(t){showResult(false,'Gagal',t)}
 
   $('btnAbsen').addEventListener('click',function(){
-    var btn=this;
-    var emp=S.employees.find(function(e){return e.id===$('empSel').value});
-    if(!emp){showResult(false,'Pilih karyawan','Tambahkan karyawan dulu di menu Karyawan.');return}
+    if(!needDb())return;
+    var btn=this,id=$('empSel').value;
+    if(!id){showResult(false,'Pilih karyawan','Belum ada karyawan. Minta admin mendaftarkan dulu.');return}
     var st=S.settings,d=curDist();
     if(st.requireGeo&&officeSet()){
       if(!pos){showResult(false,'Lokasi belum didapat','Tekan Ambil lokasi dan izinkan akses lokasi, lalu coba lagi.');return}
@@ -398,77 +470,134 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       detectFace(shot.full).then(function(n){
         if(n===0){$('camA').classList.add('bad');btn.disabled=false;showResult(false,'Wajah tidak terdeteksi','Foto selfie dengan wajah jelas di tengah frame.');return}
         $('camA').classList.remove('bad');
-        var score=bestScore(emp,shot.sig);
-        if(st.requireMatch&&score<st.threshold){btn.disabled=false;showResult(false,'Wajah tidak cocok','Kecocokan '+score+'%, batas '+st.threshold+'%. Perbaiki cahaya atau daftarkan ulang foto wajah.');return}
-        var today=dayKey(Date.now()),mine=S.logs.filter(function(l){return l.empId===emp.id&&dayKey(l.ts)===today});
-        var hasIn=mine.some(function(l){return l.type==='masuk'}),hasOut=mine.some(function(l){return l.type==='pulang'});
-        if(hasIn&&hasOut){btn.disabled=false;showResult(false,'Sudah lengkap','Absen masuk dan pulang '+emp.name+' hari ini sudah tercatat.');return}
-        var type=hasIn?'pulang':'masuk',now=Date.now();
-        S.logs.push({id:uid(),empId:emp.id,name:emp.name,type:type,ts:now,lat:pos?pos.lat:null,lng:pos?pos.lng:null,dist:d===null?null:Math.round(d),score:score,photo:shot.thumb});
-        btn.disabled=false;
-        if(save())showResult(true,'Absen '+type+' tercatat','Pukul '+hhmm(now)+' · '+emp.name+(d!==null?' · '+Math.round(d)+' m dari kantor':'')+' · kecocokan '+score+'%');
-      });
+        return sb.rpc('submit_attendance',{p_emp:id,p_sig:shot.sig,p_lat:pos?pos.lat:null,p_lng:pos?pos.lng:null,p_photo:shot.thumb}).then(function(r){
+          btn.disabled=false;
+          if(r.error){toastErr(dbErr(r.error));return}
+          var x=r.data||{};
+          if(x.ok)showResult(true,'Absen '+x.type+' tercatat','Pukul '+hhmm(x.ts)+' · '+x.name+(x.dist!=null?' · '+x.dist+' m dari kantor':'')+' · kecocokan '+x.score+'%');
+          else if(x.code==='match')showResult(false,'Wajah tidak cocok','Kecocokan '+x.score+'%, batas '+x.threshold+'%. Perbaiki cahaya atau minta admin mendaftarkan ulang foto wajah.');
+          else if(x.code==='radius')showResult(false,'Di luar radius kantor','Jarak Anda '+x.dist+' m, batas '+x.radius+' m.');
+          else if(x.code==='nogps')showResult(false,'Lokasi belum didapat','Tekan Ambil lokasi dan izinkan akses lokasi, lalu coba lagi.');
+          else if(x.code==='done')showResult(false,'Sudah lengkap','Absen masuk dan pulang '+(x.name||'karyawan ini')+' hari ini sudah tercatat.');
+          else showResult(false,'Karyawan tidak ditemukan','Muat ulang halaman lalu pilih nama lagi.');
+        });
+      }).catch(function(e){btn.disabled=false;toastErr(dbErr(e))});
     });
   });
 
-  /* ---------- karyawan ---------- */
+  /* ---------- karyawan (admin) ---------- */
   var samples=[];
   function renderSamples(){$('samples').innerHTML=samples.map(function(s){return '<img alt="Foto wajah" src="'+s.thumb+'">'}).join('')}
   $('btnShot').addEventListener('click',function(){
-    if(samples.length>=3){toastAlert('Maksimal 3 foto.');return}
+    if(samples.length>=3){alert('Maksimal 3 foto.');return}
     takePhoto(function(s){
-      if(!s){toastAlert('Gagal mengambil foto. Coba lagi.');return}
-      if(samples.length>=3){toastAlert('Maksimal 3 foto.');return}
+      if(!s){alert('Gagal mengambil foto. Coba lagi.');return}
+      if(samples.length>=3){alert('Maksimal 3 foto.');return}
       samples.push(s);renderSamples();
     });
   });
-  function toastAlert(t){$('csvHint').textContent=t;alert(t)}
   $('btnSaveEmp').addEventListener('click',function(){
+    if(!needDb())return;
     var name=$('newName').value.trim();
     if(!name){alert('Isi nama karyawan.');return}
     if(!samples.length){alert('Ambil minimal 1 foto wajah.');return}
-    S.employees.push({id:uid(),name:name,photo:samples[0].thumb,sigs:samples.map(function(s){return s.sig})});
-    samples=[];$('newName').value='';
-    if(save()){renderSamples();renderEmps()}
+    var btn=this;btn.disabled=true;
+    sb.from('employees').insert({name:name,photo:samples[0].thumb,sigs:samples.map(function(s){return s.sig})}).then(function(r){
+      btn.disabled=false;
+      if(r.error){alert('Gagal menyimpan: '+dbErr(r.error));return}
+      samples=[];$('newName').value='';renderSamples();loadEmps();
+    });
   });
-  function renderEmps(){
+  function loadEmps(){
     var el=$('empList');
-    if(!S.employees.length){el.innerHTML='<li class="empty">Belum ada karyawan terdaftar.</li>';return}
-    el.innerHTML=S.employees.map(function(e){return '<li class="item"><img alt="" src="'+e.photo+'"><div class="grow"><div class="name">'+esc(e.name)+'</div><div class="meta">'+e.sigs.length+' foto wajah</div></div><button class="small danger" data-del="'+e.id+'">Hapus</button></li>'}).join('');
-    el.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){
-      if(!confirm('Hapus karyawan ini? Catatan absennya tetap tersimpan.'))return;
-      S.employees=S.employees.filter(function(e){return e.id!==b.dataset.del});save();renderEmps()})});
+    if(!sb){el.innerHTML='<li class="empty">Database belum terhubung.</li>';return}
+    sb.from('employees').select('id,name,photo,sigs').order('name').then(function(r){
+      if(r.error){el.innerHTML='<li class="empty">Gagal memuat: '+esc(dbErr(r.error))+'</li>';return}
+      var list=r.data||[];
+      if(!list.length){el.innerHTML='<li class="empty">Belum ada karyawan terdaftar.</li>';return}
+      el.innerHTML=list.map(function(e){return '<li class="item"><img alt="" src="'+esc(e.photo||'')+'"><div class="grow"><div class="name">'+esc(e.name)+'</div><div class="meta">'+(e.sigs||[]).length+' foto wajah</div></div><button class="small danger" data-del="'+esc(e.id)+'">Hapus</button></li>'}).join('');
+      el.querySelectorAll('[data-del]').forEach(function(b){b.addEventListener('click',function(){
+        if(!confirm('Hapus karyawan ini? Catatan absennya tetap tersimpan.'))return;
+        sb.from('employees').delete().eq('id',b.dataset.del).then(function(x){if(x.error)alert('Gagal menghapus: '+dbErr(x.error));loadEmps()});
+      })});
+    });
   }
 
-  /* ---------- riwayat ---------- */
+  /* ---------- riwayat (admin) ---------- */
+  function groupDays(logs){
+    var by={};
+    logs.forEach(function(l){
+      var k=l.work_date+'|'+(l.employee_id||l.name);
+      var r=by[k]||(by[k]={date:l.work_date,name:l.name});
+      r[l.type]=l;
+    });
+    return Object.keys(by).map(function(k){return by[k]}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:(a.name<b.name?-1:1)});
+  }
   function renderHistory(){
-    var day=$('dateSel').value;
-    var logs=S.logs.filter(function(l){return dayKey(l.ts)===day}).sort(function(a,b){return a.ts-b.ts});
-    var by={};logs.forEach(function(l){(by[l.empId]=by[l.empId]||{name:l.name}) [l.type]=l});
-    var ids=Object.keys(by),jam=S.settings.jamMasuk;
-    if(!ids.length)$('recap').innerHTML='<div class="empty">Belum ada absen di tanggal ini.</div>';
-    else $('recap').innerHTML='<table><thead><tr><th>Nama</th><th>Masuk</th><th>Pulang</th><th>Status</th></tr></thead><tbody>'+ids.map(function(id){
-      var r=by[id],inT=r.masuk?hhmm(r.masuk.ts):'–',late=r.masuk&&inT>jam;
-      return '<tr><td>'+esc(r.name)+'</td><td>'+inT+'</td><td>'+(r.pulang?hhmm(r.pulang.ts):'–')+'</td><td class="'+(late?'late':'')+'">'+(late?'Terlambat':(r.masuk?'Tepat waktu':'–'))+'</td></tr>'}).join('')+'</tbody></table>';
-    $('logList').innerHTML=logs.length?logs.slice().reverse().map(function(l){
-      return '<li class="item"><img alt="" src="'+(l.photo||'')+'"><div class="grow"><div class="name">'+esc(l.name)+' · '+l.type+'</div><div class="meta">'+hhmm(l.ts)+(l.dist!==null?' · '+l.dist+' m':'')+' · cocok '+l.score+'%</div></div></li>'}).join(''):'<li class="empty">Kosong.</li>';
+    if(!sb){return}
+    var day=$('dateSel').value,jam=S.settings.jamMasuk;
+    sb.from('attendance').select('*').eq('work_date',day).order('ts').then(function(r){
+      if(r.error){$('recap').innerHTML='<div class="empty">Gagal memuat: '+esc(dbErr(r.error))+'</div>';$('logList').innerHTML='';return}
+      var logs=r.data||[],rows=groupDays(logs);
+      if(!rows.length)$('recap').innerHTML='<div class="empty">Belum ada absen di tanggal ini.</div>';
+      else $('recap').innerHTML='<table><thead><tr><th>Nama</th><th>Masuk</th><th>Pulang</th><th>Status</th></tr></thead><tbody>'+rows.map(function(x){
+        var inT=x.masuk?hhmm(x.masuk.ts):'–',late=x.masuk&&inT>jam;
+        return '<tr><td>'+esc(x.name)+'</td><td>'+inT+'</td><td>'+(x.pulang?hhmm(x.pulang.ts):'–')+'</td><td class="'+(late?'late':'')+'">'+(late?'Terlambat':(x.masuk?'Tepat waktu':'–'))+'</td></tr>'}).join('')+'</tbody></table>';
+      $('logList').innerHTML=logs.length?logs.slice().reverse().map(function(l){
+        return '<li class="item"><img alt="" src="'+esc(l.photo||'')+'"><div class="grow"><div class="name">'+esc(l.name)+' · '+esc(l.type)+'</div><div class="meta">'+hhmm(l.ts)+(l.dist!=null?' · '+l.dist+' m':'')+' · cocok '+l.score+'%</div></div></li>'}).join(''):'<li class="empty">Kosong.</li>';
+    });
   }
   $('dateSel').addEventListener('change',renderHistory);
-  function csvOf(list){
-    var rows=[['Tanggal','Jam','Nama','Jenis','Jarak_m','Kecocokan_%','Lat','Lng']];
-    list.sort(function(a,b){return a.ts-b.ts}).forEach(function(l){rows.push([dayKey(l.ts),hhmm(l.ts),l.name,l.type,l.dist===null?'':l.dist,l.score,l.lat===null?'':l.lat,l.lng===null?'':l.lng])});
-    return rows.map(function(r){return r.map(function(c){c=String(c);return /[",\n]/.test(c)?'"'+c.replace(/"/g,'""')+'"':c}).join(',')}).join('\n');
-  }
-  function copyCsv(text){
-    var box=$('csvBox');box.hidden=false;box.value=text;box.focus();box.select();
-    var done=function(ok){$('csvHint').textContent=ok?'CSV disalin. Tempel ke Excel atau Google Sheets.':'Teks CSV sudah dipilih. Salin manual lalu tempel ke Excel atau Google Sheets.'};
-    try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){done(true)},function(){done(false)});return}}catch(e){}
-    done(false);
-  }
-  $('btnCsvDay').addEventListener('click',function(){var day=$('dateSel').value;copyCsv(csvOf(S.logs.filter(function(l){return dayKey(l.ts)===day})))});
-  $('btnCsvAll').addEventListener('click',function(){copyCsv(csvOf(S.logs.slice()))});
 
-  /* ---------- pengaturan ---------- */
+  function fetchRange(from,to){
+    var all=[],step=1000;
+    function page(start){
+      return sb.from('attendance').select('employee_id,name,type,ts,work_date,lat,lng,dist,score').gte('work_date',from).lte('work_date',to).order('ts').range(start,start+step-1).then(function(r){
+        if(r.error)throw r.error;
+        all=all.concat(r.data||[]);
+        if((r.data||[]).length===step)return page(start+step);
+        return all;
+      });
+    }
+    return page(0);
+  }
+  function dur(a,b){var m=Math.round((new Date(b)-new Date(a))/60000);if(m<0)return '';return Math.floor(m/60)+':'+pad(m%60)}
+  function sheet(rows,widths){var ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=widths.map(function(w){return {wch:w}});return ws}
+  $('btnXlsx').addEventListener('click',function(){
+    if(!needDb())return;
+    if(typeof XLSX==='undefined'){alert('Pustaka Excel gagal dimuat. Periksa koneksi internet lalu muat ulang.');return}
+    var from=$('expFrom').value,to=$('expTo').value,h=$('xlsxHint'),btn=this;
+    if(!from||!to||from>to){alert('Pilih rentang tanggal yang benar.');return}
+    btn.disabled=true;h.textContent='Mengambil data…';
+    fetchRange(from,to).then(function(logs){
+      if(!logs.length){h.textContent='Tidak ada data pada rentang itu.';return}
+      var jam=S.settings.jamMasuk;
+      var s1=[['Tanggal','Jam','Nama','Jenis','Keterangan','Jarak (m)','Kecocokan (%)','Lintang','Bujur']];
+      logs.forEach(function(l){
+        var t=hhmm(l.ts);
+        s1.push([l.work_date,t,l.name,l.type==='masuk'?'Masuk':'Pulang',l.type==='masuk'?(t>jam?'Terlambat':'Tepat waktu'):'',l.dist==null?'':l.dist,l.score==null?'':l.score,l.lat==null?'':l.lat,l.lng==null?'':l.lng]);
+      });
+      var days=groupDays(logs);
+      var s2=[['Tanggal','Nama','Jam masuk','Jam pulang','Status','Durasi (jam:menit)']];
+      var perEmp={};
+      days.forEach(function(x){
+        var inT=x.masuk?hhmm(x.masuk.ts):'',late=x.masuk&&inT>jam;
+        s2.push([x.date,x.name,inT,x.pulang?hhmm(x.pulang.ts):'',x.masuk?(late?'Terlambat':'Tepat waktu'):'',(x.masuk&&x.pulang)?dur(x.masuk.ts,x.pulang.ts):'']);
+        var p=perEmp[x.name]||(perEmp[x.name]={hadir:0,telat:0});
+        if(x.masuk){p.hadir++;if(late)p.telat++}
+      });
+      var s3=[['Nama','Hari hadir','Jumlah terlambat']];
+      Object.keys(perEmp).sort().forEach(function(n){s3.push([n,perEmp[n].hadir,perEmp[n].telat])});
+      var wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,sheet(s1,[12,8,26,9,14,10,14,12,12]),'Kehadiran');
+      XLSX.utils.book_append_sheet(wb,sheet(s2,[12,26,11,11,14,18]),'Rekap Harian');
+      XLSX.utils.book_append_sheet(wb,sheet(s3,[26,12,18]),'Rekap Karyawan');
+      XLSX.writeFile(wb,'absensi_'+from+'_sd_'+to+'.xlsx');
+      h.textContent='File Excel diunduh ('+logs.length+' catatan).';
+    }).catch(function(e){h.textContent='Gagal: '+dbErr(e)}).then(function(){btn.disabled=false});
+  });
+
+  /* ---------- pengaturan (admin) ---------- */
   function fillSettings(){var s=S.settings;
     $('sLat').value=s.lat===null?'':s.lat;$('sLng').value=s.lng===null?'':s.lng;$('sRad').value=s.radius;$('sJam').value=s.jamMasuk;
     $('sThr').value=s.threshold;$('sGeo').checked=s.requireGeo;$('sMatch').checked=s.requireMatch}
@@ -485,28 +614,37 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     if(m&&m.length>=2&&validLL(parseFloat(m[0]),parseFloat(m[1]))){
       $('sLat').value=parseFloat(m[0]);$('sLng').value=parseFloat(m[1]);
       h.textContent='Terisi: '+parseFloat(m[0])+', '+parseFloat(m[1])+'. Tekan Simpan pengaturan.';
-    }else h.textContent='Format tidak dikenali. Contoh yang benar: -6.208763, 106.845599 (lintang -90 sampai 90, bujur -180 sampai 180).';
+    }else h.textContent='Format tidak dikenali. Contoh yang benar: -6.208763, 106.845599.';
   }
   $('sPaste').addEventListener('input',parsePaste);$('sPaste').addEventListener('change',parsePaste);
   $('btnSaveSet').addEventListener('click',function(){
+    if(!needDb())return;
     var lat=parseFloat($('sLat').value.replace(',','.')),lng=parseFloat($('sLng').value.replace(',','.'));
     if(isNaN(lat)&&isNaN(lng)){lat=null;lng=null}
     else if(!validLL(lat,lng)){alert('Koordinat tidak valid. Lintang harus -90 sampai 90 dan bujur -180 sampai 180. Contoh Jakarta: -6.2088 dan 106.8456.');return}
-    S.settings.lat=lat;S.settings.lng=lng;
-    S.settings.radius=Math.max(10,parseInt($('sRad').value,10)||100);
-    S.settings.jamMasuk=$('sJam').value||'08:00';
-    S.settings.threshold=Math.min(99,Math.max(30,parseInt($('sThr').value,10)||70));
-    S.settings.requireGeo=$('sGeo').checked;S.settings.requireMatch=$('sMatch').checked;
-    if(save()){renderGps();alert('Pengaturan tersimpan.')}
+    var row={lat:lat,lng:lng,radius:Math.max(10,parseInt($('sRad').value,10)||100),jam_masuk:$('sJam').value||'08:00',
+      threshold:Math.min(99,Math.max(30,parseInt($('sThr').value,10)||70)),require_geo:$('sGeo').checked,require_match:$('sMatch').checked};
+    var btn=this;btn.disabled=true;
+    sb.from('settings').update(row).eq('id',1).select().then(function(r){
+      btn.disabled=false;
+      if(r.error){alert('Gagal menyimpan: '+dbErr(r.error));return}
+      if(!r.data||!r.data.length){alert('Tidak ada perubahan tersimpan. Pastikan Anda login sebagai admin.');return}
+      S.settings=mapSettings(r.data[0]);renderGps();alert('Pengaturan tersimpan.');
+    });
   });
   $('btnWipe').addEventListener('click',function(){
-    if(!confirm('Hapus semua catatan absen? Ini tidak bisa dibatalkan.'))return;
-    S.logs=[];save();alert('Catatan absen dihapus.')});
+    if(!needDb())return;
+    if(!confirm('Hapus SEMUA catatan absen di database? Ini tidak bisa dibatalkan.'))return;
+    sb.from('attendance').delete().neq('id','00000000-0000-0000-0000-000000000000').then(function(r){
+      alert(r.error?('Gagal menghapus: '+dbErr(r.error)):'Catatan absen dihapus.')});
+  });
 
   /* ---------- init ---------- */
-  load();
-  var t=new Date();$('dateSel').value=t.getFullYear()+'-'+pad(t.getMonth()+1)+'-'+pad(t.getDate());
-  renderGps();show('absen');
+  var t=new Date();
+  $('dateSel').value=ymd(t);$('expTo').value=ymd(t);$('expFrom').value=ymd(new Date(t.getFullYear(),t.getMonth(),1));
+  renderGps();
+  if(!sb)$('setup').hidden=false;
+  refreshAuth().then(function(){show('absen')},function(){show('absen')});
   document.addEventListener('visibilitychange',function(){if(document.hidden)stopCam()});
 })();
 </script>
