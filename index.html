@@ -132,12 +132,6 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
 
   <!-- ABSEN -->
   <section class="view on" id="v-absen">
-    <div class="panel">
-      <div class="field" style="margin-bottom:0">
-        <label for="empSel">Nama karyawan</label>
-        <select id="empSel"></select>
-      </div>
-    </div>
     <div class="cam" id="camA">
       <video id="videoA" playsinline muted autoplay></video>
       <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice"><ellipse class="oval" cx="150" cy="185" rx="95" ry="125"/></svg>
@@ -153,7 +147,15 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     <p class="hint" id="gpsHint" hidden style="margin:-4px 0 12px"></p>
     <div id="result"></div>
     <button class="primary big" id="btnAbsen">Absen sekarang</button>
-    <p class="hint">Sistem otomatis memilih masuk atau pulang sesuai catatan hari ini.</p>
+    <p class="hint">Nama dikenali otomatis dari wajah. Sistem juga memilih masuk atau pulang sesuai catatan hari ini.</p>
+    <details class="panel" style="margin-top:12px">
+      <summary style="cursor:pointer;font-weight:600">Wajah tidak dikenali? Pilih nama manual</summary>
+      <div class="field" style="margin:10px 0 0">
+        <label for="empSel">Nama karyawan</label>
+        <select id="empSel"></select>
+        <p class="hint">Biarkan di "Otomatis" agar wajah dikenali sendiri.</p>
+      </div>
+    </details>
   </section>
 
   <!-- LOGIN ADMIN -->
@@ -279,7 +281,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
   var sb=null;
   try{if(/^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL)&&SUPABASE_KEY.indexOf('ISI_')!==0&&window.supabase)sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY)}catch(e){}
   var S={settings:{lat:null,lng:null,radius:100,jamMasuk:'08:00',threshold:70,requireGeo:true,requireMatch:true}};
-  var isAdmin=false,adminEmail='',pending='absen',LAST='absensi-last-emp';
+  var isAdmin=false,adminEmail='',pending='absen';
   var ADMIN_V={riwayat:1,karyawan:1,atur:1};
 
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -445,20 +447,15 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     sb.rpc('list_employees').then(function(r){
       var list=r.data||[];
       if(r.error){sel.innerHTML='<option value="">Gagal memuat daftar</option>';return}
-      if(!list.length){sel.innerHTML='<option value="">Belum ada karyawan</option>';return}
-      sel.innerHTML=list.map(function(e){return '<option value="'+esc(e.id)+'">'+esc(e.name)+'</option>'}).join('');
-      var last='';try{last=localStorage.getItem(LAST)||''}catch(e){}
-      if(last&&list.some(function(e){return e.id===last}))sel.value=last;
+      sel.innerHTML='<option value="">Otomatis (kenali dari wajah)</option>'+list.map(function(e){return '<option value="'+esc(e.id)+'">'+esc(e.name)+'</option>'}).join('');
     });
   }
-  $('empSel').addEventListener('change',function(){try{localStorage.setItem(LAST,this.value)}catch(e){}});
   function showResult(ok,title,text){$('result').innerHTML='<div class="result '+(ok?'ok':'bad')+'" role="status"><b>'+esc(title)+'</b>'+esc(text)+'</div>'}
   function toastErr(t){showResult(false,'Gagal',t)}
 
   $('btnAbsen').addEventListener('click',function(){
     if(!needDb())return;
     var btn=this,id=$('empSel').value;
-    if(!id){showResult(false,'Pilih karyawan','Belum ada karyawan. Minta admin mendaftarkan dulu.');return}
     var st=S.settings,d=curDist();
     if(st.requireGeo&&officeSet()){
       if(!pos){showResult(false,'Lokasi belum didapat','Tekan Ambil lokasi dan izinkan akses lokasi, lalu coba lagi.');return}
@@ -470,11 +467,16 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       detectFace(shot.full).then(function(n){
         if(n===0){$('camA').classList.add('bad');btn.disabled=false;showResult(false,'Wajah tidak terdeteksi','Foto selfie dengan wajah jelas di tengah frame.');return}
         $('camA').classList.remove('bad');
-        return sb.rpc('submit_attendance',{p_emp:id,p_sig:shot.sig,p_lat:pos?pos.lat:null,p_lng:pos?pos.lng:null,p_photo:shot.thumb}).then(function(r){
+        var args={p_sig:shot.sig,p_lat:pos?pos.lat:null,p_lng:pos?pos.lng:null,p_photo:shot.thumb};
+        if(id)args.p_emp=id;
+        return sb.rpc(id?'submit_attendance':'submit_attendance_auto',args).then(function(r){
           btn.disabled=false;
           if(r.error){toastErr(dbErr(r.error));return}
           var x=r.data||{};
-          if(x.ok)showResult(true,'Absen '+x.type+' tercatat','Pukul '+hhmm(x.ts)+' · '+x.name+(x.dist!=null?' · '+x.dist+' m dari kantor':'')+' · kecocokan '+x.score+'%');
+          if(x.ok)showResult(true,x.name+' · absen '+x.type+' tercatat','Pukul '+hhmm(x.ts)+(x.dist!=null?' · '+x.dist+' m dari kantor':'')+' · kecocokan '+x.score+'%');
+          else if(x.code==='nomatch')showResult(false,'Wajah tidak dikenali','Kecocokan tertinggi '+x.score+'%, batas '+x.threshold+'%. Coba lagi dengan cahaya lebih terang dan wajah lurus, atau pilih nama manual. Bila sering gagal, minta admin daftarkan ulang foto wajah.');
+          else if(x.code==='ambiguous')showResult(false,'Wajah mirip beberapa karyawan','Sistem belum yakin siapa Anda. Coba foto ulang dengan cahaya lebih baik, atau pilih nama manual.');
+          else if(x.code==='noemp'&&!id)showResult(false,'Belum ada karyawan','Minta admin mendaftarkan karyawan dulu.');
           else if(x.code==='match')showResult(false,'Wajah tidak cocok','Kecocokan '+x.score+'%, batas '+x.threshold+'%. Perbaiki cahaya atau minta admin mendaftarkan ulang foto wajah.');
           else if(x.code==='radius')showResult(false,'Di luar radius kantor','Jarak Anda '+x.dist+' m, batas '+x.radius+' m.');
           else if(x.code==='nogps')showResult(false,'Lokasi belum didapat','Tekan Ambil lokasi dan izinkan akses lokasi, lalu coba lagi.');
