@@ -183,6 +183,7 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
     <div class="panel">
       <h2>Catatan absen</h2>
       <ul class="list" id="logList"></ul>
+      <button class="danger small" id="btnDelDay" style="margin-top:10px" hidden>Hapus semua catatan tanggal ini</button>
     </div>
     <div class="panel">
       <h2>Ekspor Excel</h2>
@@ -546,10 +547,32 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
         var inT=x.masuk?hhmm(x.masuk.ts):'–',late=x.masuk&&inT>jam;
         return '<tr><td>'+esc(x.name)+'</td><td>'+inT+'</td><td>'+(x.pulang?hhmm(x.pulang.ts):'–')+'</td><td class="'+(late?'late':'')+'">'+(late?'Terlambat':(x.masuk?'Tepat waktu':'–'))+'</td></tr>'}).join('')+'</tbody></table>';
       $('logList').innerHTML=logs.length?logs.slice().reverse().map(function(l){
-        return '<li class="item"><img alt="" src="'+esc(l.photo||'')+'"><div class="grow"><div class="name">'+esc(l.name)+' · '+esc(l.type)+'</div><div class="meta">'+hhmm(l.ts)+(l.dist!=null?' · '+l.dist+' m':'')+' · cocok '+l.score+'%</div></div></li>'}).join(''):'<li class="empty">Kosong.</li>';
+        return '<li class="item"><img alt="" src="'+esc(l.photo||'')+'"><div class="grow"><div class="name">'+esc(l.name)+' · '+esc(l.type)+'</div><div class="meta">'+hhmm(l.ts)+(l.dist!=null?' · '+l.dist+' m':'')+' · cocok '+l.score+'%</div></div><button class="small danger" data-dellog="'+esc(l.id)+'" data-info="'+esc(l.name+' · '+l.type+' · '+hhmm(l.ts))+'">Hapus</button></li>'}).join(''):'<li class="empty">Kosong.</li>';
+      $('btnDelDay').hidden=!logs.length;
+      $('logList').querySelectorAll('[data-dellog]').forEach(function(b){b.addEventListener('click',function(){
+        if(!confirm('Hapus catatan ini?\n'+b.dataset.info))return;
+        b.disabled=true;
+        sb.from('attendance').delete().eq('id',b.dataset.dellog).select('id').then(function(x){
+          if(x.error){b.disabled=false;alert('Gagal menghapus: '+dbErr(x.error));return}
+          if(!x.data||!x.data.length){b.disabled=false;alert('Tidak ada yang terhapus. Pastikan Anda login sebagai admin.');return}
+          renderHistory();
+        });
+      })});
     });
   }
   $('dateSel').addEventListener('change',renderHistory);
+  $('btnDelDay').addEventListener('click',function(){
+    if(!needDb())return;
+    var day=$('dateSel').value;
+    if(!confirm('Hapus SEMUA catatan absen pada tanggal '+day+'? Ini tidak bisa dibatalkan.'))return;
+    var btn=this;btn.disabled=true;
+    sb.from('attendance').delete().eq('work_date',day).select('id').then(function(x){
+      btn.disabled=false;
+      if(x.error){alert('Gagal menghapus: '+dbErr(x.error));return}
+      if(!x.data||!x.data.length){alert('Tidak ada yang terhapus. Pastikan Anda login sebagai admin.');return}
+      renderHistory();
+    });
+  });
 
   function fetchRange(from,to){
     var all=[],step=1000;
