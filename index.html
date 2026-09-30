@@ -137,6 +137,8 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <svg viewBox="0 0 300 400" preserveAspectRatio="xMidYMid slice"><ellipse class="oval" cx="150" cy="185" rx="95" ry="125"/></svg>
       <div class="off" id="camAoff">Kamera belum aktif</div>
     </div>
+    <button class="primary big" id="btnAbsen">Absen sekarang</button>
+    <div id="result" style="margin-top:12px"></div>
     <div class="gpsrow">
       <div class="chips">
         <span class="chip" id="chipGps">GPS: mencari…</span>
@@ -145,8 +147,6 @@ nav button[aria-selected=true]{color:var(--primary);box-shadow:inset 0 3px 0 var
       <button class="small" id="btnGps">Ambil lokasi</button>
     </div>
     <p class="hint" id="gpsHint" hidden style="margin:-4px 0 12px"></p>
-    <div id="result"></div>
-    <button class="primary big" id="btnAbsen">Absen sekarang</button>
     <p class="hint">Nama dikenali otomatis dari wajah. Sistem juga memilih masuk atau pulang sesuai catatan hari ini.</p>
     <details class="panel" style="margin-top:12px">
       <summary style="cursor:pointer;font-weight:600">Wajah tidak dikenali? Pilih nama manual</summary>
